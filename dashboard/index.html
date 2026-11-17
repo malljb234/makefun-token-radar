@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Radar — pre-token protocols ranked by implied value</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-in">
+    <div class="brand"><span class="mark" aria-hidden="true"></span><span class="brand-name">Token Radar</span><span class="tag">pre-token · implied value</span></div>
+    <div class="top-meta" id="top-meta"></div>
+  </div>
+</header>
+<main class="wrap" id="app" aria-busy="true">
+  <section class="lede">
+    <div>
+      <h1 id="headline">Ranking the protocols still waiting on a token</h1>
+      <p id="lede-text" class="muted">Every protocol with at least $50M of TVL and no token on record, plus every rankable pre-token protocol below that floor — scored by one model of the snapshot's own figures. Implied value is a model, not a promise, and never a prediction of whether or when a token launches.</p>
+    </div>
+    <div class="facts" id="facts"></div>
+  </section>
+  <section class="controls" aria-label="Filter the board">
+    <div class="field grow">
+      <label for="q">Search</label>
+      <input type="search" id="q" placeholder="Name, slug, category or chain" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="category">Category</label>
+      <select id="category"></select>
+    </div>
+    <div class="field">
+      <label for="chain">Chain</label>
+      <select id="chain"></select>
+    </div>
+    <div class="field">
+      <label for="minTvl">Min TVL</label>
+      <select id="minTvl">
+        <option value="0">Any</option>
+        <option value="10000000">$10M</option>
+        <option value="50000000">$50M</option>
+        <option value="100000000">$100M</option>
+        <option value="500000000">$500M</option>
+        <option value="1000000000">$1B</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="watchlist">Watchlist</label>
+      <select id="watchlist">
+        <option value="all">All rows</option>
+        <option value="only">Watchlist only</option>
+      </select>
+    </div>
+    <div class="field">
+      <span class="lbl">Token status</span>
+      <div class="tabs" role="tablist" aria-label="Token status">
+        <button type="button" id="tab-pre" role="tab" aria-selected="true">Pre-token</button>
+        <button type="button" id="tab-live" role="tab" aria-selected="false">Live token</button>
+      </div>
+    </div>
+  </section>
+  <p class="count muted" id="count"></p>
+  <section class="panel" id="table-panel">
+    <div class="table-wrap">
+      <table id="board-table">
+        <caption class="muted">Pre-token protocols, strongest implied value first. Select a row for its value breakdown and farm plan.</caption>
+        <thead><tr id="thead-row"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="empty" hidden>
+      <h2>No protocol matches that filter</h2>
+      <p class="muted">Clear the search or pick another category to see the board again.</p>
+      <button class="btn primary" type="button" id="clear-filters">Clear filters</button>
+    </div>
+  </section>
+  <section class="panel model" id="model-panel">
+    <h2>How implied value is computed</h2>
+    <p class="muted">One function scores every row from the snapshot's figures. No protocol name is special-cased, and no row is hand-picked.</p>
+    <p class="formula" id="formula"></p>
+    <p class="muted" id="model-note"></p>
+  </section>
+  <footer class="foot muted" id="foot"></footer>
+</main>
+<dialog class="detail" id="detail" aria-labelledby="detail-title"></dialog>
+<script src="../data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
