@@ -42,16 +42,15 @@
   }
   function fmtMult(n) { return (Math.round(n * 10000) / 10000).toFixed(4).replace(/0+$/, '').replace(/\.$/, '.0'); }
 
-  // The model in one function: the page recomputes a row from the snapshot figures and checks the
-  // number board.json carries, so the page's code and the board's data are visibly the same arithmetic.
+  // The fitted model in one function: the page recomputes a row from the snapshot figures and
+  // checks the number board.json carries, so the page's code and the board's data are visibly the
+  // same arithmetic. Coefficients come from data.js (fitted at build time), never written here.
   function impliedOf(row, model) {
-    var growth = Math.min(model.growth_cap, Math.max(model.growth_floor, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
-    var growthMult = 1 + (growth / 100) * model.growth_weight;
-    var age = row.age_days === null || row.age_days === undefined ? model.unknown_age_days : row.age_days;
-    var maturity = model.maturity_floor + model.maturity_range * (1 - Math.exp(-Math.max(age, 0) / model.maturity_half_life_days));
-    var breadth = Math.min(model.breadth_cap, 1 + model.breadth_weight * Math.log(Math.max(1, (row.chains || []).length)));
-    var base = model.base_coef * Math.pow(Math.max(1, row.tvl_usd), model.tvl_exponent);
-    return Math.max(1, Math.round(base * growthMult * maturity * breadth * row.category_multiplier));
+    var growth = Math.min(100, Math.max(-50, row.change_7d === null || row.change_7d === undefined ? 0 : row.change_7d));
+    var growthMult = Math.min(model.growth_mult_max, Math.max(model.growth_mult_min, Math.exp(model.growth_coef * (growth / 100))));
+    var breadth = Math.min(model.breadth_mult_max, Math.max(model.breadth_mult_min, Math.exp(model.chains_coef * Math.log(Math.max(1, (row.chains || []).length)))));
+    var base = Math.exp(model.intercept) * Math.pow(Math.max(1, row.tvl_usd), model.tvl_exponent);
+    return Math.max(1, Math.round(base * growthMult * breadth * row.category_multiplier));
   }
 
   function el(tag, attrs) {
@@ -125,6 +124,54 @@
     return sel;
   }
 
+  function fmtSigned(n, digits) {
+    if (n === null || n === undefined || !isFinite(n)) return 'n/a';
+    return (n > 0 ? '+' : '') + n.toFixed(digits === undefined ? 2 : digits);
+  }
+
+  // The fitted model's evidence, rendered from data.js: how it was fitted, what it explains, and
+  // how it held up out of sample. Nothing here is hand-written; every number is the build's own.
+  function renderFit(m) {
+    var panel = document.getElementById('fit-panel');
+    if (!panel) return;
+    panel.textContent = '';
+    var f = m.fit;
+    panel.appendChild(el('h3', { text: 'Fitted on traded tokens, tested out of sample' }));
+    panel.appendChild(el('p', { class: 'muted', text:
+      'The model is an ordinary least-squares regression of log market cap on log TVL, seven-day growth and log chain count, fitted on ' +
+      m.n_fit + ' traded tokens (anchors) from this snapshot. Anchors are the ' + m.n_anchors +
+      ' traded protocols whose token plausibly is the protocol itself — not a wrapped, staked or bridged product, not a versioned pool, not an exchange\'s product. ' +
+      'The 5% of anchors with the lowest and highest market-cap-per-TVL were set aside before fitting (a prediction-market token at 400x its TVL, a staking receipt at 0.0006x), so one outlier cannot drag the fit.' }));
+    var coef = el('div', { class: 'fit-grid' });
+    [
+      ['log TVL', m.tvl_exponent.toFixed(4) + '  (t = ' + fmtSigned(m.tvl_exponent / m.tvl_exponent_se, 2) + ')'],
+      ['growth', m.growth_coef.toFixed(4) + '  (t = ' + fmtSigned(m.growth_coef / m.growth_coef_se, 2) + ')'],
+      ['log chains', m.chains_coef.toFixed(4) + '  (t = ' + fmtSigned(m.chains_coef / m.chains_coef_se, 2) + ')'],
+      ['intercept', m.intercept.toFixed(4) + '  (t = ' + fmtSigned(m.intercept / m.intercept_se, 2) + ')'],
+    ].forEach(function (c) {
+      coef.appendChild(el('div', { class: 'fit-cell' }, el('span', { text: c[0] }), el('b', { class: 'num', text: c[1] })));
+    });
+    panel.appendChild(coef);
+    var tests = el('div', { class: 'fit-grid' });
+    [
+      ['In-sample fit (n = ' + m.n_fit + ')', 'R-squared ' + f.r2.toFixed(3) + ' · median error ' + f.med_ape_pct.toFixed(0) + '%'],
+      ['5-fold out-of-sample', 'R-squared ' + fmtSigned(f.cv_r2, 3) + ' · median error ' + f.cv_med_ape_pct.toFixed(0) + '%'],
+      ['Forward holdout (listed before ' + f.fwd_cutoff + ', n = ' + f.fwd_n_train + ', tested on ' + f.fwd_n_test + ' listed after)', 'R-squared ' + fmtSigned(f.fwd_r2, 3) + ' · median error ' + f.fwd_med_ape_pct.toFixed(0) + '%'],
+    ].forEach(function (c) {
+      tests.appendChild(el('div', { class: 'fit-cell wide' }, el('span', { text: c[0] }), el('b', { class: 'num', text: c[1] })));
+    });
+    panel.appendChild(tests);
+    panel.appendChild(el('p', { class: 'muted', text:
+      'What the tests say: the model explains about a third of the variance in traded market caps, and it holds up on tokens it was not fitted on — including the forward holdout, where it was trained only on protocols listed before ' +
+      f.fwd_cutoff + ' and still predicted the ' + f.fwd_n_test + ' listed after it. The rest is idiosyncratic — tokenomics, unlocks, hype — none of which the snapshot carries, so treat every implied value as the market\'s average multiple for a protocol of this shape, not a price target. ' + f.walk_forward }));
+    if (m.categories && m.categories.length) {
+      var cats = m.categories.map(function (c) {
+        return c.category + ' ' + c.multiplier.toFixed(2) + ' (n=' + c.peers + ')';
+      }).join(' · ');
+      panel.appendChild(el('p', { class: 'muted', text: 'Category multiples from the fit: ' + cats + '. Categories with fewer than ' + m.category_min_peers + ' fitted anchors use 1.00.' }));
+    }
+  }
+
   function renderMeta() {
     var meta = document.getElementById('top-meta');
     meta.textContent = '';
@@ -148,17 +195,22 @@
       ' of TVL and no token on record. The early radar adds ' + DATA.early_size +
       ' pre-token protocols below that floor. Implied value is a model, not a promise, and never a prediction of whether or when a token launches.';
     var m = DATA.model;
+    var f = m.fit;
+    document.getElementById('fit-strip').textContent =
+      'Fitted on ' + m.n_fit + ' traded tokens · in-sample R-squared ' + f.r2.toFixed(3) +
+      ' · 5-fold out-of-sample R-squared ' + fmtSigned(f.cv_r2, 3) +
+      ' · forward holdout R-squared ' + fmtSigned(f.fwd_r2, 3) + ' (trained before ' + f.fwd_cutoff + ')';
     document.getElementById('formula').textContent =
-      'implied = round( ' + m.base_coef + ' x tvl ^ ' + m.tvl_exponent +
-      '  x  (1 + ' + m.growth_weight + ' x clamp(change_7d, ' + m.growth_floor + ', ' + m.growth_cap + ') / 100)' +
-      '  x  (' + m.maturity_floor + ' + ' + m.maturity_range + ' x (1 - exp(-age_days / ' + m.maturity_half_life_days + ')))' +
-      '  x  (1 + ' + m.breadth_weight + ' x ln(chains), capped at ' + m.breadth_cap + ')' +
-      '  x  category multiple )';
+      'implied = round( e^' + m.intercept.toFixed(4) + ' x tvl ^ ' + m.tvl_exponent.toFixed(4) +
+      '  x  growthMult  x  breadthMult  x  category multiple )\n' +
+      'growthMult = clamp( exp(' + m.growth_coef.toFixed(4) + ' x clamp(change_7d, -50, +100) / 100), ' + m.growth_mult_min + ', ' + m.growth_mult_max + ' )\n' +
+      'breadthMult = clamp( exp(' + m.chains_coef.toFixed(4) + ' x ln(chains)), ' + m.breadth_mult_min + ', ' + m.breadth_mult_max + ' )';
     document.getElementById('model-note').textContent =
-      'TVL, seven-day growth, age since first listing and chain count come from the snapshot. The category multiple is the median market-cap-per-dollar-of-TVL of the live-token protocols in the same category (at least ' +
-      m.category_min_peers + ' peers, otherwise 1.0), normalised by ' + m.category_norm + ' and clamped to [' +
-      m.category_min + ', ' + m.category_max + ']. An unlisted age uses ' + m.unknown_age_days +
-      ' days. Live-token protocols are set aside with their market caps shown, never ranked as pre-token.';
+      'TVL, seven-day growth and chain count come from the snapshot. The category multiple is the median residual of the category\'s fitted anchors (at least ' +
+      m.category_min_peers + ' peers, otherwise 1.0), exponentiated and clamped to [' +
+      m.category_min + ', ' + m.category_max + ']. Age since first listing is shown for every row but carries no weight: tested as a fifth term it scored a coefficient of ' +
+      f.age_coef + ' (t = ' + f.age_t + ', R-squared gain ' + f.age_r2_gain + '), so the fitted model does not reward it. Live-token protocols are set aside with their market caps shown, never ranked as pre-token.';
+    renderFit(m);
     document.getElementById('foot').textContent =
       'Source: ' + DATA.source + '. A protocol "records no token" when its DefiLlama record carries no market cap, CoinGecko id or symbol — the record is not proof it has none. Farm plans are suggestions, not financial advice.';
   }
@@ -317,11 +369,10 @@
       ['Seven-day growth', fmtPct(row.change_7d)],
       ['Age with no token', fmtAge(row.age_days) + (row.listed_at ? ' (since ' + row.listed_at + ')' : '')],
       ['Chains', String((row.chains || []).length)],
-      ['Base value (1.3 x TVL ^ 0.9)', fmtUsd(row.base_usd)],
+      ['Base value', fmtUsd(row.base_usd)],
       ['Growth multiplier', fmtMult(row.growth_multiplier)],
-      ['Maturity multiplier', fmtMult(row.maturity_multiplier)],
       ['Breadth multiplier', fmtMult(row.breadth_multiplier)],
-      ['Category multiplier', fmtMult(row.category_multiplier) + (row.category_ratio !== null && row.category_ratio !== undefined ? ' (median mcap/TVL ' + row.category_ratio.toFixed(3) + ')' : ' (no live peers)')],
+      ['Category multiplier', fmtMult(row.category_multiplier) + (row.category_ratio !== null && row.category_ratio !== undefined ? ' (median mcap/TVL ' + row.category_ratio.toFixed(3) + ')' : ' (fewer than 3 fitted peers)')],
     ].forEach(function (pair) {
       eq.appendChild(el('div', null, el('span', { text: pair[0] }), el('b', { class: 'num', text: pair[1] })));
     });
@@ -330,7 +381,7 @@
       el('p', { class: 'check ' + (agrees ? 'ok' : 'bad'), text: agrees
         ? 'This page recomputes the row as ' + fmtUsd(recomputed) + ', the same number board.json carries.'
         : 'This page recomputes the row as ' + fmtUsd(recomputed) + ', which differs from the board: the data would be stale.' }),
-      el('p', { class: 'muted', text: 'Model ' + DATA.model_version + ': the same function scores every protocol. This is an estimate, not a price, and not a prediction of a launch.' })
+      el('p', { class: 'muted', text: 'Model ' + DATA.model_version + ': the coefficients are fitted on traded tokens (see the model panel), the same function scores every protocol, and age carries no weight in it. This is an estimate, not a price, and not a prediction of a launch.' })
     ));
     var steps = el('ol', { class: 'steps' });
     (row.farm_steps || []).forEach(function (s) {

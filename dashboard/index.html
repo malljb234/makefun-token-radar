@@ -18,6 +18,7 @@
     <div>
       <h1 id="headline">Ranking the protocols still waiting on a token</h1>
       <p id="lede-text" class="muted">Every protocol with at least $50M of TVL and no token on record, plus every rankable pre-token protocol below that floor — scored by one model of the snapshot's own figures. Implied value is a model, not a promise, and never a prediction of whether or when a token launches.</p>
+      <p class="fit-strip" id="fit-strip"></p>
     </div>
     <div class="facts" id="facts"></div>
   </section>
@@ -77,9 +78,10 @@
   </section>
   <section class="panel model" id="model-panel">
     <h2>How implied value is computed</h2>
-    <p class="muted">One function scores every row from the snapshot's figures. No protocol name is special-cased, and no row is hand-picked.</p>
+    <p class="muted">One function scores every row from the snapshot's figures. No protocol name is special-cased, and no row is hand-picked. The coefficients are fitted, not chosen: they come from a regression on the snapshot's own traded tokens, run at build time.</p>
     <p class="formula" id="formula"></p>
     <p class="muted" id="model-note"></p>
+    <div class="fit" id="fit-panel" aria-label="How the model was fitted and tested"></div>
   </section>
   <footer class="foot muted" id="foot"></footer>
 </main>
